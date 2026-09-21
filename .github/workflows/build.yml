@@ -22,25 +22,23 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          cmdline-tools-version: 11076708
           packages: platform-tools platforms;android-34 build-tools;34.0.0
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew || true
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
       - name: Build Debug APK
-        run: |
-          if [ -x ./gradlew ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
-          else
-            gradle assembleDebug --stacktrace --no-daemon
-          fi
+        run: gradle assembleDebug --stacktrace --no-daemon
 
-      - name: Show APK location
-        run: find . -name "*.apk" -type f -exec ls -lh {} \;
+      - name: Show APK files
+        run: |
+          echo "APK files found:"
+          find . -name "*.apk" -type f -exec ls -lh {} \;
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
