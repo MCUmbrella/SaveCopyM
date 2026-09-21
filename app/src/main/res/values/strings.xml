@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Save Copy M</string>
+    <string name="current_destination">Current destination:</string>
+    <string name="none">None</string>
+    <string name="select_destination">Select destination</string>
+    <string name="file_saved">File saved!</string>
+    <string name="ok">OK</string>
+    <string name="no_destination">Please select a destination folder first.</string>
+    <string name="save_failed">Failed to save file.</string>
+    <string name="permission_needed">Storage permission is needed on older Android versions.</string>
+</resources>
