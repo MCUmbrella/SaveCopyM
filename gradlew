@@ -1,3 +1,4 @@
 #!/bin/sh
-# Simplified gradlew for CI
-exec gradle "$@"
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec gradle -p "$DIR" "$@"
