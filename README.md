@@ -5,6 +5,8 @@
 
 Inspired by [RikkaApps/SaveCopy](https://github.com/RikkaApps/SaveCopy).
 
+![Screenshot](screenshot.jpg)
+
 ## Why SaveCopyM?
 
 The original **SaveCopy** by Rikka is excellent, but on some devices (especially ColorOS / OxygenOS / OnePlus / OPPO), apps without a visible launcher icon or proper UI are filtered out of the “Open with” list by the system or by certain apps (like ฿₳łĐɄ ₦Ɇ₮Đł₴₭).
