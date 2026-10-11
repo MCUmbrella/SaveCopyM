@@ -2,7 +2,7 @@ name: Build SaveCopyM APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ master, dev ]
   workflow_dispatch:
 
 jobs:

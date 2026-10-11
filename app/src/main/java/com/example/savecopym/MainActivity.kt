@@ -1,9 +1,9 @@
 package com.example.savecopym
 
-import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.widget.Button
@@ -14,6 +14,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import java.io.IOException
+import java.net.URLDecoder
 
 class MainActivity : AppCompatActivity() {
 
@@ -23,12 +24,14 @@ class MainActivity : AppCompatActivity() {
     private val PREFS_NAME = "SaveCopyMPrefs"
     private val KEY_TREE_URI = "tree_uri"
 
+    // Prevent processing the same incoming intent more than once
+    private var hasProcessedIncoming = false
+
     // SAF folder picker
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Persist permission
             val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             contentResolver.takePersistableUriPermission(uri, takeFlags)
@@ -54,13 +57,18 @@ class MainActivity : AppCompatActivity() {
 
         updateDestinationDisplay()
 
-        // Handle incoming file
-        handleIncomingIntent(intent)
+        // Only handle incoming intent on first creation (not configuration change)
+        // and only if we haven't processed it yet in this activity instance.
+        if (savedInstanceState == null) {
+            handleIncomingIntent(intent)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Reset flag so a brand-new open-with can still work
+        hasProcessedIncoming = false
         handleIncomingIntent(intent)
     }
 
@@ -72,36 +80,78 @@ class MainActivity : AppCompatActivity() {
             try {
                 val uri = Uri.parse(uriString)
                 val doc = DocumentFile.fromTreeUri(this, uri)
-                tvDestination.text = doc?.name ?: uriString
+                // Prefer a human-readable path if possible
+                val display = getReadableTreePath(uri) ?: (doc?.name ?: uriString)
+                tvDestination.text = display
             } catch (e: Exception) {
                 tvDestination.text = uriString
             }
         }
     }
 
+    /**
+     * Try to turn a SAF tree URI into something readable like
+     * "/sdcard/Download/SCM" or at least "primary:Download/SCM"
+     */
+    private fun getReadableTreePath(treeUri: Uri): String? {
+        return try {
+            val pathSeg = treeUri.lastPathSegment ?: return null
+            // Typical form: primary:Download/SCM  or  raw:...
+            val decoded = URLDecoder.decode(pathSeg, "UTF-8")
+            when {
+                decoded.startsWith("primary:") -> {
+                    "/sdcard/" + decoded.removePrefix("primary:")
+                }
+                decoded.contains(":") -> {
+                    // e.g. XXXX-XXXX:Download/foo  →  show as-is after colon
+                    "/storage/" + decoded
+                }
+                else -> decoded
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun handleIncomingIntent(intent: Intent?) {
-        if (intent == null) return
+        if (intent == null || hasProcessedIncoming) return
 
         val action = intent.action
         val uri: Uri? = when {
             Intent.ACTION_VIEW == action -> intent.data
             Intent.ACTION_SEND == action -> {
                 if (intent.type?.startsWith("text/") == true) {
-                    // text share, ignore for now or handle differently
                     null
                 } else {
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                    }
                 }
             }
             Intent.ACTION_SEND_MULTIPLE == action -> {
-                // Take first file for simplicity
-                val uris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                val uris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                }
                 uris?.firstOrNull()
             }
             else -> null
         }
 
         if (uri != null) {
+            hasProcessedIncoming = true
+            // Clear the intent data immediately so that if the activity is
+            // brought back from Recents it won't re-trigger a save.
+            intent.data = null
+            intent.replaceExtras(Bundle())
+            intent.action = Intent.ACTION_MAIN
+            setIntent(intent)
+
             saveFile(uri)
         }
     }
@@ -111,7 +161,7 @@ class MainActivity : AppCompatActivity() {
         if (treeUriString.isNullOrEmpty()) {
             AlertDialog.Builder(this)
                 .setMessage(R.string.no_destination)
-                .setPositiveButton(R.string.ok) { _, _ -> finish() }
+                .setPositiveButton(R.string.ok) { _, _ -> finishAndCleanup() }
                 .setCancelable(false)
                 .show()
             return
@@ -122,7 +172,6 @@ class MainActivity : AppCompatActivity() {
             val treeDoc = DocumentFile.fromTreeUri(this, treeUri)
                 ?: throw IOException("Cannot access destination folder")
 
-            // Get original filename
             var fileName = getFileName(sourceUri) ?: "saved_file_${System.currentTimeMillis()}"
 
             // Avoid name conflict
@@ -149,12 +198,14 @@ class MainActivity : AppCompatActivity() {
                 } ?: throw IOException("Cannot open output stream")
             } ?: throw IOException("Cannot open input stream")
 
-            // Success dialog
-            val savedPath = "${treeDoc.name}/$fileName"
+            // Build a nicer path for the dialog
+            val folderPath = getReadableTreePath(treeUri) ?: (treeDoc.name ?: "selected folder")
+            val savedPath = "$folderPath/$fileName"
+
             AlertDialog.Builder(this)
                 .setTitle(R.string.file_saved)
                 .setMessage(savedPath)
-                .setPositiveButton(R.string.ok) { _, _ -> finish() }
+                .setPositiveButton(R.string.ok) { _, _ -> finishAndCleanup() }
                 .setCancelable(false)
                 .show()
 
@@ -162,9 +213,21 @@ class MainActivity : AppCompatActivity() {
             e.printStackTrace()
             AlertDialog.Builder(this)
                 .setMessage(getString(R.string.save_failed) + "\n${e.message}")
-                .setPositiveButton(R.string.ok) { _, _ -> finish() }
+                .setPositiveButton(R.string.ok) { _, _ -> finishAndCleanup() }
                 .setCancelable(false)
                 .show()
+        }
+    }
+
+    /**
+     * Finish the activity and remove it from Recents so the old VIEW intent
+     * cannot be revived and cause a duplicate save.
+     */
+    private fun finishAndCleanup() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            finishAndRemoveTask()
+        } else {
+            finish()
         }
     }
 
